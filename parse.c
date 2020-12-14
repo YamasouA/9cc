@@ -1,217 +1,165 @@
 #include "9cc.h"
 
-void error(char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    fprintf(stderr, "\n");
-    exit(1);
+static Node *expr(Token **rest, Token *tok);
+static Node *equality(Token **rest, Token *tok);
+static Node *relational(Token **rest, Token *tok);
+static Node *add(Token **rest, Token *tok);
+static Node *mul(Token **rest, Token *tok);
+static Node *unary(Token **rest, Token *tok);
+static Node *primary(Token **rest, Token *tok);
+
+static Node *new_node(NodeKind kind) {
+  Node *node = calloc(1, sizeof(Node));
+  node->kind = kind;
+  return node;
 }
 
-//エラーの場所を報告しプログラム終了
-void error_at(char *loc, char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-
-    int pos = loc - user_input;
-    fprintf(stderr, "%s\n", user_input);
-    fprintf(stderr, "%*s", pos, "");
-    fprintf(stderr, "^ ");
-    vfprintf(stderr, fmt, ap);
-    fprintf(stderr, "\n");
-    exit(1);
+static Node *new_binary(NodeKind kind, Node *lhs, Node *rhs) {
+  Node *node = new_node(kind);
+  node->lhs = lhs;
+  node->rhs = rhs;
+  return node;
 }
 
-//次のトークンが期待している記号の時には、トークンを1つ読み進めて
-//真を返す。それ以外の場合は偽を返す
-bool consume(char *op) {
-    if (token->kind != TK_RESERVED ||
-        strlen(op) != token->len ||
-        memcmp(token->str, op, token->len)) //長いトークンから先にトークナイズする >=, >のような場合
-        return false;
-    token = token->next;
-    return true;
+static Node *new_unary(NodeKind kind, Node *expr) {
+  Node *node = new_node(kind);
+  node->lhs = expr;
+  return node;
 }
 
-//次のトークンが期待している記号の時には、トークンを1つ読み進める
-//それ以外の場合にはエラーを報告する
-void expect(char *op) {
-    if (token->kind != TK_RESERVED || strlen(op) != token->len ||
-        memcmp(token->str, op, token->len))
-      error_at(token->str, "expected \"%s\"", op);
-    token = token->next;
+static Node *new_num(int val) {
+  Node *node = new_node(ND_NUM);
+  node->val = val;
+  return node;
 }
 
-
-//次のトークンが数値の場合、トークンを1つ読み進めてその数値を返す
-//それ以外の場合にはエラーを報告する
-int expect_number() {
-    if (token->kind != TK_NUM)
-      error_at(token->str, "expected a number");
-    int val = token->val;
-    token = token->next;
-    return val;
+// expr = equality
+static Node *expr(Token **rest, Token *tok) {
+  return equality(rest, tok);
 }
 
-bool at_eof() {
-    return token->kind == TK_EOF;
-}
+// equality = relational ("==" relational | "!=" relational)*
+static Node *equality(Token **rest, Token *tok) {
+  Node *node = relational(&tok, tok);
 
-//新しいトークンを作成してcurに繋げる
-Token *new_token(TokenKind kind, Token *cur, char *str, int len) {
-    Token *tok = calloc(1, sizeof(Token));
-    tok->kind = kind;
-    tok->str = str;
-    tok->len = len;
-    cur->next = tok;
-    return tok;
-}
-
-bool startswith(char *p, char *q) {
-    return memcmp(p, q, strlen(q)) == 0;
-}
-
-//入力文字列pをトークナイズしてそれを返す
-Token *tokenize() {
-    char *p = user_input;
-    Token head;
-    head.next = NULL;
-    Token *cur = &head;
-
-    while (*p) {
-        //空白文字をスキップ
-        if (isspace(*p)) {
-            p++;
-            continue;
-        }
-
-        if (startswith(p, "==") || startswith(p, "!=") || startswith(p, "<=") || startswith(p, ">=")) {
-            cur = new_token(TK_RESERVED, cur, p, 2);
-            p += 2;
-            continue;
-        }
-
-        if (strchr("+-*/()<>", *p)) {
-            cur = new_token(TK_RESERVED, cur, p++, 1);
-            continue;
-        }
-
-
-
-        if (isdigit(*p)) {
-          cur = new_token(TK_NUM, cur, p, 0);
-          char *q = p;
-          cur->val = strtol(p, &p, 10);
-          cur->len = q - p;
-          continue;
-        }
-        error_at(p, "invalid token");
+  for (;;) {
+    if (equal(tok, "==")) {
+      node = new_binary(ND_EQ, node, relational(&tok, tok->next));
+      continue;
     }
-    
-    new_token(TK_EOF, cur, p, 0);
-    return head.next;
-}
 
-Node *new_node(NodeKind kind) {
-    Node *node = calloc(1, sizeof(Node));
-    node->kind = kind;
+    if (equal(tok, "!=")) {
+      node = new_binary(ND_NE, node, relational(&tok, tok->next));
+      continue;
+    }
+
+    *rest = tok;
     return node;
+  }
 }
 
-Node *new_binary(NodeKind kind, Node *lhs, Node *rhs) {
-    Node *node = new_node(kind);
-    node->lhs = lhs;
-    node->rhs = rhs;
+// relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+static Node *relational(Token **rest, Token *tok) {
+  Node *node = add(&tok, tok);
+
+  for (;;) {
+    if (equal(tok, "<")) {
+      node = new_binary(ND_LT, node, add(&tok, tok->next));
+      continue;
+    }
+
+    if (equal(tok, "<=")) {
+      node = new_binary(ND_LE, node, add(&tok, tok->next));
+      continue;
+    }
+
+    if (equal(tok, ">")) {
+      node = new_binary(ND_LT, add(&tok, tok->next), node);
+      continue;
+    }
+
+    if (equal(tok, ">=")) {
+      node = new_binary(ND_LE, add(&tok, tok->next), node);
+      continue;
+    }
+
+    *rest = tok;
     return node;
+  }
 }
 
-Node *new_num(int val) {
-    Node *node = new_node(ND_NUM);
-    node->val = val;
+// add = mul ("+" mul | "-" mul)*
+static Node *add(Token **rest, Token *tok) {
+  Node *node = mul(&tok, tok);
+
+  for (;;) {
+    if (equal(tok, "+")) {
+      node = new_binary(ND_ADD, node, mul(&tok, tok->next));
+      continue;
+    }
+
+    if (equal(tok, "-")) {
+      node = new_binary(ND_SUB, node, mul(&tok, tok->next));
+      continue;
+    }
+
+    *rest = tok;
     return node;
+  }
 }
 
-Node *expr();
-Node *equallity();
-Node *relational();
-Node *add();
-Node *mul();
-Node *unary();
-Node *primary();
+// mul = unary ("*" unary | "/" unary)*
+static Node *mul(Token **rest, Token *tok) {
+  Node *node = unary(&tok, tok);
 
-Node *expr() {
-    return equallity();
-}
-
-Node *equallity() {
-    Node *node = relational();
-
-    for (;;) {
-        if (consume("=="))
-          node = new_binary(ND_EQ, node, relational());
-        else if (consume("!="))
-          node = new_binary(ND_NE, node, relational());
-        else
-          return node;
+  for (;;) {
+    if (equal(tok, "*")) {
+      node = new_binary(ND_MUL, node, unary(&tok, tok->next));
+      continue;
     }
-}
 
-Node *relational() {
-    Node *node = add();
-
-    for (;;) {
-        if (consume("<"))
-          node = new_binary(ND_LT, node, add());
-        else if (consume("<="))
-          node = new_binary(ND_LE, node, add());
-        else if (consume(">"))
-          node = new_binary(ND_LT, add(), node);
-        else if (consume(">="))
-          node = new_binary(ND_LE, add(), node);
-        else
-          return node;
+    if (equal(tok, "/")) {
+      node = new_binary(ND_DIV, node, unary(&tok, tok->next));
+      continue;
     }
+
+    *rest = tok;
+    return node;
+  }
 }
 
-Node *add() {
-    Node *node = mul();
+// unary = ("+" | "-") unary
+//       | primary
+static Node *unary(Token **rest, Token *tok) {
+  if (equal(tok, "+"))
+    return unary(rest, tok->next);
 
-    for (;;) {
-        if (consume("+"))
-          node = new_binary(ND_ADD, node, mul());
-        else if (consume("-"))
-          node = new_binary(ND_SUB, node, mul());
-        else
-          return node;
-    }
+  if (equal(tok, "-"))
+    return new_unary(ND_NEG, unary(rest, tok->next));
+
+  return primary(rest, tok);
 }
 
-Node *mul() {
-    Node *node = unary();
+// primary = "(" expr ")" | num
+static Node *primary(Token **rest, Token *tok) {
+  if (equal(tok, "(")) {
+    Node *node = expr(&tok, tok->next);
+    *rest = skip(tok, ")");
+    return node;
+  }
 
-    for (;;) {
-        if (consume("*"))
-          node = new_binary(ND_MUL, node, unary());
-        else if (consume("/"))
-          node = new_binary(ND_DIV, node, unary());
-        else
-          return node;
-    }
+  if (tok->kind == TK_NUM) {
+    Node *node = new_num(tok->val);
+    *rest = tok->next;
+    return node;
+  }
+
+  error_tok(tok, "expected an expression");
 }
 
-Node *unary() {
-    if (consume("+"))
-      return unary();
-    if (consume("-"))
-      return new_binary(ND_SUB, new_num(0), unary());
-    return primary();
-}
-
-Node *primary() {
-    if (consume("(")) {
-        Node *node = expr();
-        expect(")");
-        return node;
-    }
-    return new_num(expect_number());
+Node *parse(Token *tok) {
+  Node *node = expr(&tok, tok);
+  if (tok->kind != TK_EOF)
+    error_tok(tok, "extra token");
+  return node;
 }
