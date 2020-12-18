@@ -82,12 +82,18 @@ Token *tokenize(char *p) {
       continue;
     }
 
-    // Numeric literal
+    // 10進数の時
     if (isdigit(*p)) {
       cur = cur->next = new_token(TK_NUM, p, p);
       char *q = p;
       cur->val = strtoul(p, &p, 10);
       cur->len = p - q;
+      continue;
+    }
+    // 1文字のローカル変数の時
+    if ('a' <= *p && *p <= 'z') {
+      cur = cur->next = new_token(TK_IDENT, p, p + 1);
+      p++;
       continue;
     }
 
