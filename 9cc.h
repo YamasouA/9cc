@@ -16,6 +16,7 @@ typedef struct Node Node;
 typedef enum {
   TK_IDENT, // Indentifiers(変数名)
   TK_PUNCT, // punctuators
+  TK_KEYWORD, // keyword(while, return, intなど)
   TK_NUM,   // Numeric literals
   TK_EOF,   // End-of-file markers
 } TokenKind;
@@ -68,6 +69,7 @@ typedef enum {
   ND_LT,  // <
   ND_LE,  // <=
   ND_ASSIGN, // =
+  ND_RETURN, //"return"
   ND_EXPR_STMT, // Expression statement
   ND_VAR, // Valiable
   ND_NUM, // Integer
