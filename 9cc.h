@@ -83,6 +83,12 @@ struct Node {
   Node *next;    // Next node
   Node *lhs;     // Left-hand side
   Node *rhs;     // Right-hand side
+
+  // "if"
+  Node *cond;
+  Node *then;
+  Node *els;
+  
   Node *body;    // Block
   Obj *var;      // Used if kind == ND_VAR
   int val;       // Used if kind == ND_NUM
