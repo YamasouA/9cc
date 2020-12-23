@@ -116,7 +116,9 @@ static void gen_stmt(Node *node) {
     }
     case ND_FOR: {
       int c = count();
-      gen_stmt(node->init);
+      //whileは変数を初期化しないから
+      if (node->init)
+        gen_stmt(node->init);
       printf(".L.begin.%d:\n", c);
       if (node->cond) {
         gen_expr(node->cond);
