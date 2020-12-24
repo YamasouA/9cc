@@ -95,6 +95,7 @@ struct Node {
 
   // function call
   char *funcname;
+  Node *args;
   
   Node *body;    // Block
   Obj *var;      // Used if kind == ND_VAR
