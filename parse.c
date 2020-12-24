@@ -260,7 +260,9 @@ static Node *unary(Token **rest, Token *tok) {
   return primary(rest, tok);
 }
 
-// primary = "(" expr ")" | num | ident
+// primary = "(" expr ")" 
+//           | num 
+//           | ident ("(" ")")?
 static Node *primary(Token **rest, Token *tok) {
   if (equal(tok, "(")) {
     Node *node = expr(&tok, tok->next);
@@ -269,6 +271,15 @@ static Node *primary(Token **rest, Token *tok) {
   }
 
   if (tok->kind == TK_IDENT) {
+    // Function call
+    if (equal(tok->next, "(")) {
+      Node *node = new_node(ND_FUNCALL);
+      node->funcname = strndup(tok->loc, tok->len);
+      *rest = skip(tok->next->next, ")");
+      return node;
+    }
+
+    // variable
     Obj *var = find_var(tok);
     if (!var) 
       var = new_lvar(strndup(tok->loc, tok->len));
